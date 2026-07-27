@@ -1,0 +1,18 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/g++",
+      "-c",
+      "-std=c++17",
+      //"-DNDEBUG",
+      "-O2",
+      "-I../src/stb/",
+      "-o",
+      "game",
+      "../src/main.cpp"
+    ],
+    "directory": "/home/gayass/Projects/game/build",
+    "file": "/home/gayass/Projects/game/src/main.cpp",
+    "output": "/home/gayass/Projects/game/build/game"
+  }
+]
