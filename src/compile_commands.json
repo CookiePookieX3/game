@@ -4,9 +4,10 @@
       "/usr/bin/g++",
       "-c",
       "-std=c++17",
-      //"-DNDEBUG",
+      "-DNDEBUG",
+      "-DSTB_VULF_IMPLEMENTATION",
       "-O2",
-      "-I../src/stb/",
+      "-I/home/gayass/Projects/game/src/stb",
       "-o",
       "game",
       "../src/main.cpp"
