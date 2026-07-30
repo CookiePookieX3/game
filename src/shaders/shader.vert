@@ -1,20 +1,24 @@
 #version 450
 
-layout(binding = 0) uniform uniformBufferObject {
-	mat4 model;
+layout(binding = 0) readonly uniform FrameUB{
 	mat4 view;
 	mat4 proj;
-} ubo;
+}camera;
+
+layout(binding = 1) readonly buffer ObjectUBO{
+	mat4 models[];
+}objects;
+
+layout(push_constant) uniform PushConstants{
+	uint objectID;
+}pc;
 
 layout(location = 0) in vec3 inPosition;
-layout(location = 1) in vec3 inColor;
-layout(location = 2) in vec2 inTexCoord;
+layout(location = 1) in vec2 inTexCoord;
 
-layout(location = 0) out vec3 fragColor;
-layout(location = 1) out vec2 fragTexCoord;
+layout(location = 0) out vec2 fragTexCoord;
 
 void main(){
-	gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 1.0);
-	fragColor = inColor;
+	gl_Position = camera.proj * camera.view * objects.models[pc.objectID] * vec4(inPosition, 1.0);
 	fragTexCoord = inTexCoord;
 }
