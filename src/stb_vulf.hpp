@@ -3,6 +3,7 @@
 
 //#define STB_IMAGE_IMPLEMENTATION
 #include "static_lib/stb_image.h"
+#include <glm/ext/quaternion_geometric.hpp>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -118,7 +119,6 @@ static const std::vector<const char*> deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
-
 #ifndef NDEBUG
 #include <iostream>
 #include <map>
@@ -185,16 +185,23 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityF
 
 class Vulf{
 public:
+	glm::vec3 cameraPosition;
+	glm::vec3 cameraDirection;
+	float     FOV;
+
+
 	uint32_t loadModel(std::string fileName);
 	void init();
-	uint32_t createObject(uint32_t modelID, Transphorm objectTrasnphorm);
-	void editObject(uint32_t objectID, Transphorm objectTransphorm);
 	bool shouldRun();
 	void drawFrame();
 	void cleanup();
 
-	glm::vec3 cameraPos;
-	glm::vec3 cameraDir;
+	void acceptScreenName(std::string name);
+	uint32_t createObject(uint32_t modelID, Transphorm objectTrasnphorm);
+	void setObjectTrasphorm(uint32_t objectID, Transphorm objectTransphorm);
+	void editObgjectTransphorm(uint32_t objectID, Transphorm objectTransphorm);
+	void deleteObject(uint32_t objectID);
+
 private:
 	GLFWwindow*      window;
 	VkInstance       instance;
@@ -249,8 +256,8 @@ private:
 	std::vector<Material>     materials;
 	std::vector<Texture>      textures;
 	std::vector<RenderObject> renderObjects;
+	std::vector<uint32_t>     freeIDs;
 	std::vector<ObjectUBO>    renderTransphorms;
-
 
 	bool framebufferResized = false;
 	uint32_t currentFrame = 0;
@@ -444,7 +451,6 @@ void Vulf::loadTextures(){
 }
 
 void Vulf::loadTexture(Texture& texture){
-
 	int texWidth, texHeight, texChannels;
 	stbi_uc* pixels = stbi_load(texture.texturePath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 	VkDeviceSize imageSize = texWidth * texHeight * 4;
@@ -498,12 +504,10 @@ void Vulf::createTextureDescriptor(Texture& texture){
 		throw std::runtime_error("Failed to allocate descriptor set\n");
 	}
 
-
 	VkDescriptorImageInfo imageInfo{};
 	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	imageInfo.imageView = texture.imageView;
 	imageInfo.sampler = textureSampler;
-
 
 	VkWriteDescriptorSet descriptorWrite{};
 	descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -514,29 +518,44 @@ void Vulf::createTextureDescriptor(Texture& texture){
 	descriptorWrite.descriptorCount = 1;
 	descriptorWrite.pImageInfo = &imageInfo;
 
-
 	vkUpdateDescriptorSets(device ,1, &descriptorWrite, 0, nullptr);
 }
 
 uint32_t Vulf::createObject(uint32_t modelID, Transphorm objectTrasnphorm){
 	RenderObject object{modelID, objectTrasnphorm};
-	renderObjects.push_back(object);
-
-	uint32_t ID = renderObjects.size() - 1;
-
 	ObjectUBO ubo = {objectTrasnphorm.modelMatrix()};
-	objectUBOs.push_back(ubo);
 
-	memcpy(objectUBsMemoryMapped[0], objectUBOs.data(), sizeof(ObjectUBO)*objectUBOs.size());
-	memcpy(objectUBsMemoryMapped[1], objectUBOs.data(), sizeof(ObjectUBO)*objectUBOs.size());
-	
+	uint32_t ID;
+	if(freeIDs.size() == 0){
+		ID = renderObjects.size();
+		renderObjects.push_back(object);
+		objectUBOs.push_back(ubo);
+	} else {
+		ID = freeIDs[0];
+		renderObjects[ID] = object;
+		objectUBOs[ID] = ubo;
+	}
+
 	return ID;
 }
 
-void Vulf::editObject(uint32_t objectID, Transphorm objectTransphorm){
-	ObjectUBO ubo{objectTransphorm.modelMatrix()};
+void Vulf::setObjectTrasphorm(uint32_t objectID, Transphorm objectTransphorm){ renderObjects[objectID].transphorm = objectTransphorm;
 
+	ObjectUBO ubo{renderObjects[objectID].transphorm.modelMatrix()};
 	objectUBOs[objectID] = ubo;
+}
+
+void Vulf::editObgjectTransphorm(uint32_t objectID, Transphorm objectTransphorm){
+	renderObjects[objectID].transphorm.position += objectTransphorm.position;
+	renderObjects[objectID].transphorm.rotation += objectTransphorm.rotation;
+	renderObjects[objectID].transphorm.scale += objectTransphorm.scale;
+
+	ObjectUBO ubo{renderObjects[objectID].transphorm.modelMatrix()};
+	objectUBOs[objectID] = ubo;
+}
+
+void Vulf::deleteObject(uint32_t objectID){
+	freeIDs.push_back(objectID);
 }
 
 void Vulf::updateStorageBuffers(uint32_t currentFrame){
@@ -545,8 +564,18 @@ void Vulf::updateStorageBuffers(uint32_t currentFrame){
 
 void Vulf::updateFrameUBO(uint32_t currentImage){
 	FrameUBO ubo;
-        ubo.view = glm::lookAt(cameraPos, cameraPos + cameraDir, glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.proj = glm::perspective(glm::radians(45.0f), swapchainExtent.width / (float) swapchainExtent.height, 0.1f, 10.0f);
+
+	glm::vec3 forward;
+	forward.x = cos(cameraDirection.x) * cos(cameraDirection.z);
+	forward.y = sin(cameraDirection.y);
+	forward.z = sin(cameraDirection.x) * cos(cameraDirection.y);
+
+	forward = glm::normalize(forward);
+	glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
+	glm::vec3 up = glm::cross(right, forward);
+
+        ubo.view = glm::lookAt(cameraPosition, cameraPosition + forward, up);
+        ubo.proj = glm::perspective(glm::radians(FOV), swapchainExtent.width / (float) swapchainExtent.height, 0.1f, 10.0f);
         ubo.proj[1][1] *= -1;
 
         memcpy(frameUBsMemoryMapped[currentImage], &ubo, sizeof(ubo));
@@ -596,9 +625,13 @@ void Vulf::initWindow(){
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-	window = glfwCreateWindow(800, 600, "game", nullptr, nullptr);
+	window = glfwCreateWindow(800, 600, "Vulf graphic engine", nullptr, nullptr);
         glfwSetWindowUserPointer(window, this); //TODO
         glfwSetFramebufferSizeCallback(window, frameBufferResizeCallback);
+}
+
+void Vulf::acceptScreenName(std::string name){
+	glfwSetWindowTitle(window, name.c_str());
 }
 
 void Vulf::createInstance(){
@@ -733,6 +766,7 @@ QueueFamilyIndicies Vulf::findQueueFamilies(VkPhysicalDevice device){
 			indices.graphicsFamily = i;
 		}
 
+		//TODO
 		//could be optimised to try to pick th same queue family
 		VkBool32 presentSupport = false;
 		vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
@@ -794,8 +828,6 @@ void Vulf::createLogicalDevice(){
 
 	VkPhysicalDeviceFeatures deviceFeatures{};
 	deviceFeatures.samplerAnisotropy = VK_FALSE;
-	//---------------------------------^^^^^^^^
-	//not matching it with smapler creation causes validation warnng
 
 	VkDeviceCreateInfo createInfo{};
 	createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -818,12 +850,6 @@ void Vulf::createLogicalDevice(){
 		throw std::runtime_error("Failed to create logical device\n");
 	}
 
-	/*
-	if(device == VK_NULL_HANDLE){
-		throw std::runtime_error("Failed to create logical device\n");
-	}
-	*/
-
 	vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
 	vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
 }
@@ -836,7 +862,6 @@ void Vulf::createSwapchain(){
 	VkPresentModeKHR presentMode = chooseSwapPresentMode(swapchainSupport.presentModes);
 	VkExtent2D extent = chooseSwapExtent(swapchainSupport.capabilities);
 
-	//TODO link MAX_IMAGES_IN_FLIGHT and imageCount in swapchain
 	uint32_t imageCount = swapchainSupport.capabilities.minImageCount + 1;
 
 	if(swapchainSupport.capabilities.maxImageCount > 0 &&
@@ -1070,7 +1095,6 @@ void Vulf::createRenderPass(){
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 	renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
 	renderPassInfo.pAttachments = attachments.data();
-	//TODO subpass shit
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;
 
@@ -1565,7 +1589,6 @@ void Vulf::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uin
 	endSingleTimeCommands(commandBuffer);
 }
 
-//TODO make confugirable
 void Vulf::createTextureSampler(){
         VkSamplerCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -1579,8 +1602,6 @@ void Vulf::createTextureSampler(){
         vkGetPhysicalDeviceProperties(physicalDevice, &properties);
 
         createInfo.anisotropyEnable = VK_FALSE;
-	//----------------------------^^^^^^^
-	//not matching it with device creation make validation warning
         createInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
 
         createInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
@@ -1918,6 +1939,16 @@ void Vulf::drawFrame(){
 	vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
 	for(uint32_t i = 0; i < renderObjects.size(); i++){
+
+		bool skip = false;
+		for(uint32_t ID : freeIDs){
+			if(i == ID){
+				skip = true;
+			}
+		}
+
+		if(skip) continue;
+
 		PushConstans pc {i};
 
 		for(const SubMesh& subMesh : models[renderObjects[i].modelID].subMeshes){
