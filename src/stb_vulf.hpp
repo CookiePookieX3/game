@@ -1,24 +1,24 @@
 // NOLINTBEGIN(misc-definitions-in-headers)
 #pragma once
 
-//#define STB_IMAGE_IMPLEMENTATION
-#include "static_lib/stb_image.h"
-#include <glm/ext/quaternion_geometric.hpp>
+#define STB_IMAGE_IMPLEMENTATION
+#include "extern/stb_image.h"
+//#include "extern/glm/glm/ext/quaternion_geometric.hpp"
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-//#define TINYOBJLOADER_IMPLEMENTATION
-#include "static_lib/tiny_obj_loader.h"
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "extern/tiny_obj_loader.h"
 
 #define FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_RADIANS
-#include <glm/ext/matrix_transform.hpp>
-#include <glm/trigonometric.hpp>
-#include <glm/ext/matrix_clip_space.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/glm.hpp>
-#include <glm/gtc/quaternion.hpp>
+#include "extern/glm/glm/ext/matrix_transform.hpp"
+#include "extern/glm/glm/trigonometric.hpp"
+#include "extern/glm/glm/ext/matrix_clip_space.hpp"
+//#include "extern/glm/glm/gtc/matrix_transform.hpp"
+//#include "extern/glm/glm/glm.hpp"
+#include "extern/glm/glm/gtc/quaternion.hpp"
 
 #include <stdexcept>
 #include <vector>
