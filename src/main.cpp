@@ -1,9 +1,6 @@
-#include <iostream>
 #include <chrono>
-#include <string>
 
 #include "stb_vulf.cpp"
-#include "stb_vulf.hpp"
 
 
 float playerHeight = 1.8;
@@ -32,15 +29,15 @@ int main(){
 	uint32_t a = vulf.createObject(labModelID, Transphorm{{0, 0, 0}, {0, 0, 0, 0}, {1, 1, 1}});
 
 	float time = 0;
-	float perviousTime;
+	float previousTime;
 	while (vulf.shouldRun()){
 		glfwPollEvents();
 
 		static auto startTime = std::chrono::high_resolution_clock::now();
 		auto currentTime = std::chrono::high_resolution_clock::now();
-		perviousTime = time;
+		previousTime = time;
 		time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-		float deltaT = time - perviousTime;
+		float deltaT = time - previousTime;
 
 		playerSpeed += glm::vec3(0, -1 * g * deltaT, 0);
 		playerPosition += playerSpeed * deltaT;
@@ -54,50 +51,27 @@ int main(){
 		}
 
 		float front = 0, right = 0;
-		if(glfwGetKey(vulf.window, GLFW_KEY_W)){
-			front += 1;
-		}
-		if(glfwGetKey(vulf.window, GLFW_KEY_S)){
-			front -= 1;
-		}
-		if(glfwGetKey(vulf.window, GLFW_KEY_D)){
-			right += 1;
-		}
-		if(glfwGetKey(vulf.window, GLFW_KEY_A)){
-			right -= 1;
-		}
+		if(glfwGetKey(vulf.window, GLFW_KEY_W)) front += 1;
+		if(glfwGetKey(vulf.window, GLFW_KEY_S)) front -= 1;
+		if(glfwGetKey(vulf.window, GLFW_KEY_D)) right += 1;
+		if(glfwGetKey(vulf.window, GLFW_KEY_A)) right -= 1;
 		glm::vec3 movement = glm::vec3(cos(playerDirection.x) * front, 0, sin(playerDirection.x) * front);
 		movement += glm::vec3(-sin(playerDirection.x) * right, 0, cos(playerDirection.x) * right);
-		if(front != 0 || right != 0){
-			movement = glm::normalize(movement);
-		}
+		if(front != 0 || right != 0) movement = glm::normalize(movement);
 		movement *= movementSpeed;
 		playerPosition += movement * deltaT;
 
 		float upR = 0, rightR = 0;
-		if(glfwGetKey(vulf.window, GLFW_KEY_K)){
-			upR += 1;
-		}
-		if(glfwGetKey(vulf.window, GLFW_KEY_J)){
-			upR -= 1;
-		}
-		if(glfwGetKey(vulf.window, GLFW_KEY_L)){
-			rightR += 1;
-		}
-		if(glfwGetKey(vulf.window, GLFW_KEY_H)){
-			rightR -= 1;
-		}
+		if(glfwGetKey(vulf.window, GLFW_KEY_K)) upR += 1;
+		if(glfwGetKey(vulf.window, GLFW_KEY_J)) upR -= 1;
+		if(glfwGetKey(vulf.window, GLFW_KEY_L)) rightR += 1;
+		if(glfwGetKey(vulf.window, GLFW_KEY_H)) rightR -= 1;
 		glm::vec3 rotation = glm::vec3(rightR * turnSpeedX, upR * trunSpeedY, 0);
 		rotation *= deltaT;
 		playerDirection += rotation;
-		if(playerDirection.y > 1.5){
-			playerDirection.y = 1.5;
-		}
-		if(playerDirection.y < -1.5){
-			playerDirection.y = -1.5;
-		}
+		if(playerDirection.y >  1.5) playerDirection.y =  1.5;
+		if(playerDirection.y < -1.5) playerDirection.y = -1.5;
 
-		
 		vulf.cameraPosition = playerPosition;
 		vulf.cameraPosition.y += playerHeight;
 		vulf.cameraDirection = playerDirection;
