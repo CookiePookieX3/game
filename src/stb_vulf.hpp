@@ -188,6 +188,7 @@ public:
 	glm::vec3 cameraPosition;
 	glm::vec3 cameraDirection;
 	float     FOV;
+	GLFWwindow*      window;
 
 
 	uint32_t loadModel(std::string fileName);
@@ -203,7 +204,6 @@ public:
 	void deleteObject(uint32_t objectID);
 
 private:
-	GLFWwindow*      window;
 	VkInstance       instance;
 	VkSurfaceKHR     surface;
 	VkQueue          graphicsQueue;
@@ -566,7 +566,7 @@ void Vulf::updateFrameUBO(uint32_t currentImage){
 	FrameUBO ubo;
 
 	glm::vec3 forward;
-	forward.x = cos(cameraDirection.x) * cos(cameraDirection.z);
+	forward.x = cos(cameraDirection.x) * cos(cameraDirection.y);
 	forward.y = sin(cameraDirection.y);
 	forward.z = sin(cameraDirection.x) * cos(cameraDirection.y);
 
@@ -575,7 +575,7 @@ void Vulf::updateFrameUBO(uint32_t currentImage){
 	glm::vec3 up = glm::cross(right, forward);
 
         ubo.view = glm::lookAt(cameraPosition, cameraPosition + forward, up);
-        ubo.proj = glm::perspective(glm::radians(FOV), swapchainExtent.width / (float) swapchainExtent.height, 0.1f, 10.0f);
+        ubo.proj = glm::perspective(glm::radians(FOV), swapchainExtent.width / (float) swapchainExtent.height, 0.1f, 50.0f);
         ubo.proj[1][1] *= -1;
 
         memcpy(frameUBsMemoryMapped[currentImage], &ubo, sizeof(ubo));

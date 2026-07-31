@@ -5,43 +5,103 @@
 #include "stb_vulf.cpp"
 #include "stb_vulf.hpp"
 
+
+float playerHeight = 1.8;
+float movementSpeed = 10;
+float turnSpeedX = 2.0;
+float trunSpeedY = 1.0;
+float floorY = 0;
+float g = 10;
+
+glm::vec3 playerPosition = glm::vec3(0, 1, 0);
+glm::vec3 playerDirection = glm::vec3(0, 0, 0);
+glm::vec3 playerSpeed = glm::vec3(0, 0, 0);
+
 int main(){
 	Vulf vulf;
 
-	//uint32_t cubeModelID = vulf.loadModel("models/cube.obj");
 	uint32_t labModelID = vulf.loadModel("models/maptest.obj");
 
 	vulf.init();
 
-	//uint32_t object1 = vulf.createObject(labModelID, Transphorm{glm::vec3(0,0,0), glm::quat(0,0,0,0), glm::vec3(0.075,0.075,0.075)});
-	uint32_t object1 = vulf.createObject(labModelID, Transphorm{glm::vec3(0,0,0), glm::quat(0,0,0,0), glm::vec3(1,1,1)});
+	vulf.FOV = 60;
 
-	//uint32_t object2 = vulf.createObject(labModelID, Transphorm{glm::vec3(0,1,0), glm::quat(0,0,0,0),  glm::vec3(0.075,0.075,0.075)});
+	vulf.cameraDirection = glm::vec3(0, 0, 0);
+	vulf.cameraPosition = glm::vec3(0, 0, 0);
 
-	std::cout << "Hello, Vulf!\n";
-
-	vulf.cameraPosition = glm::vec3(2, 1, 0);
-	vulf.cameraDirection = glm::vec3(-1.57, 0, 0);
-	vulf.FOV = 100;
+	uint32_t a = vulf.createObject(labModelID, Transphorm{{0, 0, 0}, {0, 0, 0, 0}, {1, 1, 1}});
 
 	float time = 0;
 	float perviousTime;
-
 	while (vulf.shouldRun()){
+		glfwPollEvents();
+
 		static auto startTime = std::chrono::high_resolution_clock::now();
 		auto currentTime = std::chrono::high_resolution_clock::now();
 		perviousTime = time;
 		time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 		float deltaT = time - perviousTime;
 
-		//vulf.cameraDirection = glm::vec3(time, -0.5, 0);
+		playerSpeed += glm::vec3(0, -1 * g * deltaT, 0);
+		playerPosition += playerSpeed * deltaT;
 
-		vulf.cameraPosition += glm::vec3(0, 0, -deltaT);
+		if(playerPosition.y <= floorY){
+			playerPosition.y = floorY;
+			playerSpeed.y = 0;
+			if(glfwGetKey(vulf.window, GLFW_KEY_LEFT_SHIFT)){
+				playerSpeed.y = 5;
+			}
+		}
 
-		//vulf.setObjectTrasphorm(object1, Transphorm{glm::vec3(0,0,1 + 0.2*sin(time)),
-			//glm::quat(0,0,0,0), glm::vec3(0.075, 0.075, 0.075)});
+		float front = 0, right = 0;
+		if(glfwGetKey(vulf.window, GLFW_KEY_W)){
+			front += 1;
+		}
+		if(glfwGetKey(vulf.window, GLFW_KEY_S)){
+			front -= 1;
+		}
+		if(glfwGetKey(vulf.window, GLFW_KEY_D)){
+			right += 1;
+		}
+		if(glfwGetKey(vulf.window, GLFW_KEY_A)){
+			right -= 1;
+		}
+		glm::vec3 movement = glm::vec3(cos(playerDirection.x) * front, 0, sin(playerDirection.x) * front);
+		movement += glm::vec3(-sin(playerDirection.x) * right, 0, cos(playerDirection.x) * right);
+		if(front != 0 || right != 0){
+			movement = glm::normalize(movement);
+		}
+		movement *= movementSpeed;
+		playerPosition += movement * deltaT;
 
-		glfwPollEvents();
+		float upR = 0, rightR = 0;
+		if(glfwGetKey(vulf.window, GLFW_KEY_K)){
+			upR += 1;
+		}
+		if(glfwGetKey(vulf.window, GLFW_KEY_J)){
+			upR -= 1;
+		}
+		if(glfwGetKey(vulf.window, GLFW_KEY_L)){
+			rightR += 1;
+		}
+		if(glfwGetKey(vulf.window, GLFW_KEY_H)){
+			rightR -= 1;
+		}
+		glm::vec3 rotation = glm::vec3(rightR * turnSpeedX, upR * trunSpeedY, 0);
+		rotation *= deltaT;
+		playerDirection += rotation;
+		if(playerDirection.y > 1.5){
+			playerDirection.y = 1.5;
+		}
+		if(playerDirection.y < -1.5){
+			playerDirection.y = -1.5;
+		}
+
+		
+		vulf.cameraPosition = playerPosition;
+		vulf.cameraPosition.y += playerHeight;
+		vulf.cameraDirection = playerDirection;
+
 		vulf.drawFrame();
 	}
 
