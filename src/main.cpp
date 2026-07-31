@@ -3,6 +3,8 @@
 #include "stb_vulf.cpp"
 
 
+Vulf vulf;
+
 float playerHeight = 1.8;
 float movementSpeed = 10;
 float turnSpeedX = 2.0;
@@ -14,9 +16,10 @@ glm::vec3 playerPosition = glm::vec3(0, 1, 0);
 glm::vec3 playerDirection = glm::vec3(0, 0, 0);
 glm::vec3 playerSpeed = glm::vec3(0, 0, 0);
 
-int main(){
-	Vulf vulf;
 
+void processPlayerMovement(float deltaT);
+
+int main(){
 	uint32_t labModelID = vulf.loadModel("models/maptest.obj");
 
 	vulf.init();
@@ -50,6 +53,18 @@ int main(){
 			}
 		}
 
+		processPlayerMovement(deltaT);
+
+		vulf.drawFrame();
+	}
+
+	vulf.cleanup();
+
+	return 0;
+}
+
+
+void processPlayerMovement(float deltaT){
 		float front = 0, right = 0;
 		if(glfwGetKey(vulf.window, GLFW_KEY_W)) front += 1;
 		if(glfwGetKey(vulf.window, GLFW_KEY_S)) front -= 1;
@@ -75,11 +90,4 @@ int main(){
 		vulf.cameraPosition = playerPosition;
 		vulf.cameraPosition.y += playerHeight;
 		vulf.cameraDirection = playerDirection;
-
-		vulf.drawFrame();
-	}
-
-	vulf.cleanup();
-
-	return 0;
 }
