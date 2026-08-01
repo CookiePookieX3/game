@@ -563,9 +563,9 @@ void Vulf::updateFrameUBO(uint32_t currentImage){
 	FrameUBO ubo;
 
 	glm::vec3 forward;
-	forward.x = cos(cameraDirection.x) * cos(cameraDirection.y);
+	forward.x = sin(cameraDirection.x) * cos(cameraDirection.y);
 	forward.y = sin(cameraDirection.y);
-	forward.z = sin(cameraDirection.x) * cos(cameraDirection.y);
+	forward.z = cos(cameraDirection.x) * cos(cameraDirection.y);
 
 	forward = glm::normalize(forward);
 	glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
