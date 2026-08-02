@@ -528,7 +528,8 @@ uint32_t Vulf::createObject(uint32_t modelID, Transphorm objectTrasnphorm){
 		renderObjects.push_back(object);
 		objectUBOs.push_back(ubo);
 	} else {
-		ID = freeIDs[0];
+		ID = freeIDs.back();
+		freeIDs.pop_back();
 		renderObjects[ID] = object;
 		objectUBOs[ID] = ubo;
 	}

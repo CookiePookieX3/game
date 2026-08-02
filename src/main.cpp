@@ -1,4 +1,6 @@
 #include <chrono>
+#include <cstdint>
+#include <fstream>
 
 #include "stb_vulf.cpp"
 
@@ -26,6 +28,9 @@ struct CollisionShape{
 
 std::vector<CollisionShape> walls;
 std::vector<bool> wallsDisabled;
+std::vector<uint32_t> wallsDeleted;
+uint32_t parseShapeFromAFile(std::string fileName, glm::vec2 offset);
+void deleteShape(uint32_t shapeID);
 
 
 struct TriangleFloor{
@@ -76,53 +81,15 @@ bool intersectionPoint2D(glm::vec2 A1, glm::vec2 B1, glm::vec2 A2, glm::vec2 B2,
 int main(){
 	uint32_t labModelID = vulf.loadModel("models/maptest.obj");
 
-	//box
-	std::vector<glm::vec2> shape = {glm::vec2(-2,-2),
-					glm::vec2(-2, 2),
-					glm::vec2( 2, 2),
-					glm::vec2( 2, -2)
-					};
-
-	//inside out box
-	/*
-	std::vector<glm::vec2> shape = {glm::vec2(-2,-2),
-					glm::vec2( 2,-2),
-					glm::vec2( 2, 2),
-					glm::vec2(-2, 2)
-					};
-	*/
-
-	//trinagle
-	/*
-	std::vector<glm::vec2> shape = {glm::vec2( 0,2),
-					glm::vec2(-2,-2),
-					glm::vec2( 2,-2),
-					};
-	*/
-
-	//walls.push_back(CollisionShape{shape});
-	//wallsDisabled.push_back(false);
-
-	/*
-	triangleFloors.push_back(TriangleFloor{glm::vec3(2,0,2), glm::vec3(2, 1, -2), glm::vec3(-2,0,-2)});
-	triangleFloors.push_back(TriangleFloor{glm::vec3(2,0,2), glm::vec3(-2, 0, 2), glm::vec3(-2,0,-2)});
-	triangleFloors[0].preCalculate();
-	triangleFloors[1].preCalculate();
-	triangleFloorsDisabled.push_back(false);
-	triangleFloorsDisabled.push_back(false);
-	*/
-
-	//axisFloors.push_back(AxisFloor{5.0f, glm::vec2(-2, 2), glm::vec2(-2, 2)});
-	//axisFloorsDisabled.push_back(false);
-	
-	rectangleFloors.push_back(RectangleFloor{0.0f, pi/4.0f, glm::vec2(1.41f, 1.41f), glm::vec2(-1, 0)});
-	rectangleFloorsDisabled.push_back(false);
-
 	vulf.init();
 
 	vulf.FOV = 60;
 
 	uint32_t a = vulf.createObject(labModelID, Transphorm{{0, 0, 0}, {0, 0, 0, 0}, {1, 1, 1}});
+	axisFloors.push_back(AxisFloor{0.0f, glm::vec2(-20.0f, 20.0f), glm::vec2(-20.0f, 20.0f)});
+	axisFloorsDisabled.push_back(false);
+	uint32_t labID = parseShapeFromAFile("collisions/lab.txt", glm::vec2(0.0f, 0.0f));
+	wallsDisabled[labID] = false;
 
 	float time = 0;
 	float previousTime;
@@ -179,21 +146,17 @@ void processPlayerMovement(float deltaT){
 		CollisionShape shape = walls[s];
 		for(int i = 0; i < shape.vertices.size(); i++){
 			int j;
-			if(i == 0){
-				j = shape.vertices.size() - 1;
-			} else {
-				j = i - 1;
-			}
+			if(i == 0) j = shape.vertices.size() - 1;
+			else       j = i - 1;
 
 			if(glm::length(shape.vertices[i] - playerPosition2D - paddingVector) < playerRadius){
 				glm::vec2 dirrection = glm::normalize(playerPosition2D + paddingVector - shape.vertices[i]);
-				paddingVector = shape.vertices[i] + dirrection * playerRadius - playerPosition2D;
-				continue;
+				paddingVector = shape.vertices[i] + dirrection * playerRadius * 1.1f - playerPosition2D;
 			}
 
 			glm::vec2 wallDirection = glm::normalize(shape.vertices[j] - shape.vertices[i]);
 			glm::vec2 wallNormal = {-wallDirection.y, wallDirection.x};
-			if(glm::dot(glm::normalize(paddingVector), wallNormal) > 0.1f) continue;
+			if(glm::dot(glm::normalize(paddingVector), wallNormal) >= 0.0f) continue;
 
 			glm::vec2 collision;
 			if(!intersectionPoint2D(playerPosition2D,
@@ -250,7 +213,6 @@ void processPlayerMovement(float deltaT){
 }
 
 bool intersectionPoint2D(glm::vec2 A1, glm::vec2 B1, glm::vec2 A2, glm::vec2 B2, glm::vec2& collision){
-
 	float denominator = (A1.x - B1.x) * (A2.y - B2.y) - (A1.y - B1.y) * (A2.x - B2.x);
 	if(std::abs(denominator) < 0.001f) return false;
 
@@ -341,4 +303,46 @@ bool axisFloorArea(int floorIndex){
 	   (playerPosition.z > floor.boundaryY.x)) return true;
 
 	return false;
+}
+
+
+uint32_t parseShapeFromAFile(std::string fileName, glm::vec2 offset){
+	std::ifstream file(fileName);
+
+	if(!file.is_open()){
+		std::cout << "Failed to open " << fileName << '\n';
+		return UINT32_MAX;
+	}
+
+	uint32_t length;
+	file >> length;
+	std::vector<glm::vec2> data;
+	for(int i = 0; i < length; i++){
+		float x, y;
+
+		if(!(file >> x >> y)){
+			std::cout << "Error reding " << fileName << '\n';
+		}
+
+		data.push_back(glm::vec2(x,y) + offset);
+	}
+
+	CollisionShape shape{data};
+	uint32_t ID;
+	if(wallsDeleted.size() > 0){
+		ID = wallsDeleted.back();
+		wallsDeleted.pop_back();
+		walls[ID] = shape;
+		wallsDisabled[ID] = true;
+	} else {
+		ID = walls.size();
+		walls.push_back(shape);
+		wallsDisabled.push_back(true);
+	}
+
+	return ID;
+}
+
+void deleteShape(uint32_t shapeID){
+
 }
