@@ -1,7 +1,5 @@
 #include <chrono>
 
-#include "extern/glm/glm/ext/quaternion_geometric.hpp"
-#include "extern/glm/glm/geometric.hpp"
 #include "stb_vulf.cpp"
 
 
@@ -11,11 +9,11 @@ float playerHeight = 1.8;
 float movementSpeed = 10;
 float turnSpeedX = 2.0;
 float trunSpeedY = 1.0;
-float floorY = 0;
 float g = 10;
+float playerRadius = 0.2f;
+float pi = 3.141;
 
-float playerRadius = 0.11f;
-
+//direction > 0 => turning left
 glm::vec3 playerPosition = glm::vec3(0, 1, 0);
 glm::vec3 playerDirection = glm::vec3(0, 0, 0);
 glm::vec3 playerVelocity = glm::vec3(0, 0, 0);
@@ -27,12 +25,48 @@ struct CollisionShape{
 };
 
 std::vector<CollisionShape> walls;
+std::vector<bool> wallsDisabled;
 
-struct CollisonFloor{
-	//TODO
+
+struct TriangleFloor{
+	glm::vec3 A;
+	glm::vec3 B;
+	glm::vec3 C;
+
+	glm::vec3 normal;
+	float d;
+
+	void preCalculate();
 };
 
-std::vector<CollisonFloor> floors;
+
+//at point A, on certain height generates platform by putting vector pointing to direction and countourclockwise to it perpendicular vector with lengths of demensions x and y corespondidly
+struct RectangleFloor{
+	float height;
+	float direction;
+	glm::vec2 dementions;
+	glm::vec2 A;
+
+};
+
+
+//code assumes that boundary.y > .x
+struct AxisFloor{
+	float height;
+	glm::vec2 boundaryX;
+	glm::vec2 boundaryY;
+};
+
+std::vector<TriangleFloor> triangleFloors;
+std::vector<RectangleFloor> rectangleFloors;
+std::vector<AxisFloor> axisFloors;
+std::vector<bool> triangleFloorsDisabled;
+std::vector<bool> rectangleFloorsDisabled;
+std::vector<bool> axisFloorsDisabled;
+bool trinagleFloorArea(int floorIndex);
+float triangleFloorY(int floorIndex);
+bool rectangleFloorArea(int floorIndex);
+bool axisFloorArea(int floorIndex);
 
 
 void processPlayerMovement(float deltaT);
@@ -43,13 +77,11 @@ int main(){
 	uint32_t labModelID = vulf.loadModel("models/maptest.obj");
 
 	//box
-	/*
 	std::vector<glm::vec2> shape = {glm::vec2(-2,-2),
 					glm::vec2(-2, 2),
 					glm::vec2( 2, 2),
 					glm::vec2( 2, -2)
 					};
-	*/
 
 	//inside out box
 	/*
@@ -61,20 +93,34 @@ int main(){
 	*/
 
 	//trinagle
+	/*
 	std::vector<glm::vec2> shape = {glm::vec2( 0,2),
 					glm::vec2(-2,-2),
 					glm::vec2( 2,-2),
 					};
-	
+	*/
 
-	walls.push_back(CollisionShape{shape});
+	//walls.push_back(CollisionShape{shape});
+	//wallsDisabled.push_back(false);
+
+	/*
+	triangleFloors.push_back(TriangleFloor{glm::vec3(2,0,2), glm::vec3(2, 1, -2), glm::vec3(-2,0,-2)});
+	triangleFloors.push_back(TriangleFloor{glm::vec3(2,0,2), glm::vec3(-2, 0, 2), glm::vec3(-2,0,-2)});
+	triangleFloors[0].preCalculate();
+	triangleFloors[1].preCalculate();
+	triangleFloorsDisabled.push_back(false);
+	triangleFloorsDisabled.push_back(false);
+	*/
+
+	//axisFloors.push_back(AxisFloor{5.0f, glm::vec2(-2, 2), glm::vec2(-2, 2)});
+	//axisFloorsDisabled.push_back(false);
+	
+	rectangleFloors.push_back(RectangleFloor{0.0f, pi/4.0f, glm::vec2(1.41f, 1.41f), glm::vec2(-1, 0)});
+	rectangleFloorsDisabled.push_back(false);
 
 	vulf.init();
 
 	vulf.FOV = 60;
-
-	vulf.cameraDirection = glm::vec3(0, 0, 0);
-	vulf.cameraPosition = glm::vec3(0, 0, 0);
 
 	uint32_t a = vulf.createObject(labModelID, Transphorm{{0, 0, 0}, {0, 0, 0, 0}, {1, 1, 1}});
 
@@ -101,16 +147,20 @@ int main(){
 
 
 void processPlayerMovement(float deltaT){
+
+	float upR = 0, rightR = 0;
+	if(glfwGetKey(vulf.window, GLFW_KEY_K)) upR += 1;
+	if(glfwGetKey(vulf.window, GLFW_KEY_J)) upR -= 1;
+	if(glfwGetKey(vulf.window, GLFW_KEY_L)) rightR += 1;
+	if(glfwGetKey(vulf.window, GLFW_KEY_H)) rightR -= 1;
+	glm::vec3 rotation = glm::vec3(-rightR * turnSpeedX, upR * trunSpeedY, 0);
+	playerDirection += rotation * deltaT;
+	if(playerDirection.y >  1.5) playerDirection.y =  1.5;
+	if(playerDirection.y < -1.5) playerDirection.y = -1.5;
+
+
+
 	playerVelocity += glm::vec3(0, -1 * g, 0) * deltaT;
-
-	if(playerPosition.y <= floorY){
-		playerPosition.y = floorY;
-		playerVelocity.y = 0;
-		if(glfwGetKey(vulf.window, GLFW_KEY_LEFT_SHIFT)){
-			playerVelocity.y = 5;
-		}
-	}
-
 	playerVelocity.x = 0;
 	playerVelocity.z = 0;
 	float front = 0, right = 0;
@@ -124,7 +174,9 @@ void processPlayerMovement(float deltaT){
 
 	glm::vec2 paddingVector = horizontalVelocity * deltaT * movementSpeed;
 	glm::vec2 playerPosition2D = {playerPosition.x, playerPosition.z};
-	for(auto shape : walls){
+	for(int s = 0; s < walls.size(); s++){
+		if(wallsDisabled[s]) continue;
+		CollisionShape shape = walls[s];
 		for(int i = 0; i < shape.vertices.size(); i++){
 			int j;
 			if(i == 0){
@@ -141,7 +193,7 @@ void processPlayerMovement(float deltaT){
 
 			glm::vec2 wallDirection = glm::normalize(shape.vertices[j] - shape.vertices[i]);
 			glm::vec2 wallNormal = {-wallDirection.y, wallDirection.x};
-			if(glm::dot(glm::normalize(paddingVector), wallNormal) > 0.05f) continue;
+			if(glm::dot(glm::normalize(paddingVector), wallNormal) > 0.1f) continue;
 
 			glm::vec2 collision;
 			if(!intersectionPoint2D(playerPosition2D,
@@ -156,19 +208,42 @@ void processPlayerMovement(float deltaT){
 		}
 	}
 
-	float upR = 0, rightR = 0;
-	if(glfwGetKey(vulf.window, GLFW_KEY_K)) upR += 1;
-	if(glfwGetKey(vulf.window, GLFW_KEY_J)) upR -= 1;
-	if(glfwGetKey(vulf.window, GLFW_KEY_L)) rightR += 1;
-	if(glfwGetKey(vulf.window, GLFW_KEY_H)) rightR -= 1;
-	glm::vec3 rotation = glm::vec3(-rightR * turnSpeedX, upR * trunSpeedY, 0);
-	playerDirection += rotation * deltaT;
-	if(playerDirection.y >  1.5) playerDirection.y =  1.5;
-	if(playerDirection.y < -1.5) playerDirection.y = -1.5;
-
-	playerPosition += playerVelocity * deltaT;
 	playerPosition.x += paddingVector.x;
 	playerPosition.z += paddingVector.y;
+
+	float floorY = -10;
+	for(int i = 0; i < triangleFloors.size(); i++){
+		if(triangleFloorsDisabled[i]) continue;
+		if(trinagleFloorArea(i)){
+			floorY = std::max(floorY, triangleFloorY(i));
+		}
+	}
+
+	for(int i = 0; i < rectangleFloors.size(); i++){
+		if(rectangleFloorsDisabled[i]) continue;
+		if(rectangleFloorArea(i)){
+			floorY = std::max(floorY, rectangleFloors[i].height);
+		}
+		continue;
+	}
+
+	for(int i = 0; i < axisFloors.size(); i++){
+		if(axisFloorsDisabled[i]) continue;
+		if(axisFloorArea(i)){
+			floorY = std::max(floorY, axisFloors[i].height);
+		}
+		continue;
+	}
+
+	if(playerPosition.y <= floorY){
+		playerPosition.y = floorY;
+		playerVelocity.y = 0;
+		if(glfwGetKey(vulf.window, GLFW_KEY_LEFT_SHIFT)){
+			playerVelocity.y = 5;
+		}
+	}
+
+	playerPosition += playerVelocity * deltaT;
 	vulf.cameraPosition = playerPosition;
 	vulf.cameraPosition.y += playerHeight;
 	vulf.cameraDirection = playerDirection;
@@ -198,3 +273,72 @@ bool intersectionPoint2D(glm::vec2 A1, glm::vec2 B1, glm::vec2 A2, glm::vec2 B2,
 	return false;
 }
 
+
+void TriangleFloor::preCalculate(){
+	glm::vec3 vec1 = B - A;
+	glm::vec3 vec2 = C - A;
+
+	normal = glm::cross(vec1, vec2);
+	d = glm::dot(normal, A);
+}
+
+float sign3D(glm::vec3& A, glm::vec3& B, glm::vec3& C){
+	return (A.x - C.x) * (B.z - C.z) -
+	       (B.x - C.x) * (A.z - C.z);
+}
+
+float sign2D(glm::vec3& A, glm::vec2& B, glm::vec2& C){
+	return (A.x - C.x) * (B.y - C.y) -
+	       (B.x - C.x) * (A.z - C.y);
+}
+
+bool trinagleFloorArea(int floorIndex){
+	TriangleFloor floor = triangleFloors[floorIndex];
+	float d1 = sign3D(playerPosition, floor.A, floor.B);
+	float d2 = sign3D(playerPosition, floor.B, floor.C);
+	float d3 = sign3D(playerPosition, floor.C, floor.A);
+
+	bool hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+	bool hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+
+	return !(hasNeg && hasPos);
+}
+
+float triangleFloorY(int floorIndex){
+	TriangleFloor triangle = triangleFloors[floorIndex];
+
+	return (triangle.d - triangle.normal.x * playerPosition.x -
+		triangle.normal.z * playerPosition.z) / triangle.normal.y;
+}
+
+
+bool rectangleFloorArea(int floorIndex){
+	RectangleFloor floor = rectangleFloors[floorIndex];
+	glm::vec2 vec1 = glm::vec2(sin(floor.direction), cos(floor.direction)) * floor.dementions.x;
+	glm::vec2 vec2 = glm::vec2(cos(floor.direction), -sin(floor.direction)) * floor.dementions.y;
+
+	glm::vec2 B = floor.A + vec1;
+	glm::vec2 C = B + vec2;
+	glm::vec2 D = floor.A + vec2;
+
+	float d1 = sign2D(playerPosition, floor.A, B);
+	float d2 = sign2D(playerPosition, B, C);
+	float d3 = sign2D(playerPosition, C, D);
+	float d4 = sign2D(playerPosition, D, floor.A);
+
+	bool hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0) || (d4 < 0);
+	bool hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0) || (d4 > 0);
+
+	return !(hasNeg && hasPos);
+}
+
+
+bool axisFloorArea(int floorIndex){
+	AxisFloor floor = axisFloors[floorIndex];
+	if((playerPosition.x < floor.boundaryX.y) &&
+	   (playerPosition.x > floor.boundaryX.x) &&
+	   (playerPosition.z < floor.boundaryY.y) &&
+	   (playerPosition.z > floor.boundaryY.x)) return true;
+
+	return false;
+}
