@@ -16,4 +16,3 @@ void main(){
 	outColor = tex;
 	//outColor = vec4(fragTexCoord, 0.0f, 1.0f);
 }
-

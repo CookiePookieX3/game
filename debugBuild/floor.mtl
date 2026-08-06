@@ -16,3 +16,9 @@ map_Kd textures/texture.jpg
 
 newmtl Material.003
 map_Kd textures/billboard.png
+
+newmtl Material.004
+map_Kd textures/myn.png
+
+newmtl Material.005
+map_Kd textures/shit.png

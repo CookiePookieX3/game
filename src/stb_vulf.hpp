@@ -1,7 +1,6 @@
 // NOLINTBEGIN(misc-definitions-in-headers)
 #pragma once
 
-#include <unordered_map>
 #include <vulkan/vulkan_core.h>
 
 #define GLFW_INCLUDE_VULKAN
@@ -118,7 +117,7 @@ struct Billboard{
 	glm::vec4 position;
 	glm::vec4 demensions;
 	uint32_t materialID;
-	uint32_t index;
+	glm::vec3 padding;
 };
 
 static const std::vector<const char*> deviceExtensions = {
@@ -274,8 +273,8 @@ private:
 	std::vector<uint32_t>     indices;
 	std::vector<Model>        models;
 	std::vector<Texture>      textures;
-
 	std::vector<Material>     materials;
+
 	std::vector<RenderObject> renderObjects;
 	std::vector<uint32_t>     freeObjectIDs;
 
@@ -632,7 +631,8 @@ void Vulf::deleteBillboardY(uint32_t ID){
 }
 
 void Vulf::updateStorageBuffers(uint32_t currentFrame){
-	memcpy(objectSSBsMemoryMapped[currentFrame], objectSSBOs.data(), sizeof(ObjectSSBO)*objectSSBOs.size());
+	memcpy(objectSSBsMemoryMapped[currentFrame], objectSSBOs.data(), sizeof(ObjectSSBO) * objectSSBOs.size());
+
 	memcpy(billboardSSBsMemoryMapped[currentFrame], billboards.data(), sizeof(Billboard) * billboards.size());
 }
 
@@ -1499,7 +1499,7 @@ void Vulf::createGraphicsPipelines(){
 	pipelineInfo2.pDepthStencilState = &depthStencil;
 	pipelineInfo2.pColorBlendState = &colorBlending;
 	pipelineInfo2.pDynamicState = &dynamicState;
-	pipelineInfo2.layout = objectPipelineLayout;
+	pipelineInfo2.layout = billboardYPipelineLayout;
 	pipelineInfo2.renderPass = renderPass;
 	pipelineInfo2.subpass = 0;
 	pipelineInfo2.basePipelineHandle = VK_NULL_HANDLE;
@@ -1955,7 +1955,7 @@ void Vulf::createObjectDescriptorSets(){
 }
 
 void Vulf::createBillboardDescriptorSets(){
-	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, objectDescriptorSetLayout);
+	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, billboardDescriptorSetLayout);
 	VkDescriptorSetAllocateInfo allocInfo{};
 	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 	allocInfo.descriptorPool = descriptorPool;
@@ -1976,7 +1976,7 @@ void Vulf::createBillboardDescriptorSets(){
 		VkDescriptorBufferInfo billboardUBInfo{};
 		billboardUBInfo.buffer = billboardSSBs[i];
 		billboardUBInfo.offset = 0;
-		billboardUBInfo.range = MAX_BILLBOARDS * sizeof(billboardSSBs);
+		billboardUBInfo.range = MAX_BILLBOARDS * sizeof(Billboard);
 
 		std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
 		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2174,7 +2174,7 @@ void Vulf::drawFrame(){
 	for(uint32_t i = 0; i < renderObjects.size(); i++){
 
 		bool skip = false;
-		for(uint32_t ID : freeObjectIDs){
+		for(uint32_t ID : freeBillboardIDs){
 			if(i == ID){
 				skip = true;
 			}
@@ -2195,9 +2195,9 @@ void Vulf::drawFrame(){
 		}
 	}
 
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, billboardYPipeline);
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, billboardYPipelineLayout, 0, 1, 
 				&billboardYDescriptorSets[currentFrame], 0, nullptr);
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, billboardYPipeline);
 
 	for(auto ID : billboardsY){
 
@@ -2205,6 +2205,7 @@ void Vulf::drawFrame(){
 		for(uint32_t i : freeObjectIDs){
 			if(ID == i){
 				skip = true;
+				break;
 			}
 		}
 
