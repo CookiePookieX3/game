@@ -5,7 +5,7 @@
 #include <vulkan/vulkan_core.h>
 #include "stb_vulf.hpp"
 
-float playerHeight = 1.8;
+float playerHeight = 1.6;
 float movementSpeed = 10;
 float turnSpeedX = 2.0;
 float trunSpeedY = 1.0;
