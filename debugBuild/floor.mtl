@@ -13,3 +13,6 @@ map_Kd textures/image.png
 
 newmtl Material.002
 map_Kd textures/texture.jpg
+
+newmtl Material.003
+map_Kd textures/billboard.png

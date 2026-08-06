@@ -1,6 +1,7 @@
 // NOLINTBEGIN(misc-definitions-in-headers)
 #pragma once
 
+#include <unordered_map>
 #include <vulkan/vulkan_core.h>
 
 #define GLFW_INCLUDE_VULKAN
@@ -59,7 +60,7 @@ struct FrameUBO{
 	glm::mat4 proj;
 };
 
-struct ObjectUBO{
+struct ObjectSSBO{
 	glm::mat4 model;
 };
 
@@ -117,6 +118,7 @@ struct Billboard{
 	glm::vec4 position;
 	glm::vec4 demensions;
 	uint32_t materialID;
+	uint32_t index;
 };
 
 static const std::vector<const char*> deviceExtensions = {
@@ -210,8 +212,8 @@ public:
 	void deleteObject(uint32_t objectID);
 
 	uint32_t createBillboardY(std::string materialName,  glm::vec2 scale, glm::vec3 position);
-	void moveBillboard(uint32_t billboardID, glm::vec3 movement);
-	void deleteBillboard(uint32_t ID);
+	void moveBillboardY(uint32_t billboardID, glm::vec3 movement);
+	void deleteBillboardY(uint32_t ID);
 
 private:
 	VkInstance       instance;
@@ -228,12 +230,12 @@ private:
 	VkExtent2D               swapchainExtent;
 
 	VkRenderPass          renderPass;
-	VkDescriptorSetLayout frameDescriptorSetLayout;
+	VkDescriptorSetLayout objectDescriptorSetLayout;
 	VkDescriptorSetLayout billboardDescriptorSetLayout;
 	VkDescriptorSetLayout textureDescriptorSetLayout;
-	VkPipeline            graphicsPipeline;
+	VkPipeline            objectPipeline;
 	VkPipeline            billboardYPipeline;
-	VkPipelineLayout      graphicsPipelineLayout;
+	VkPipelineLayout      objectPipelineLayout;
 	VkPipelineLayout      billboardYPipelineLayout;
 	VkCommandPool         commandPool;
 
@@ -250,16 +252,16 @@ private:
 	std::vector<VkBuffer>       frameUBs;
 	std::vector<VkDeviceMemory> frameUBsMemory;
 	std::vector<void*>          frameUBsMemoryMapped;
-	std::vector<VkBuffer>       objectUBs;
-	std::vector<VkDeviceMemory> objectUBsMemory;
-	std::vector<void*>          objectUBsMemoryMapped;
-	std::vector<ObjectUBO>      objectUBOs;
+	std::vector<VkBuffer>       objectSSBs;
+	std::vector<VkDeviceMemory> objectSSBsMemory;
+	std::vector<void*>          objectSSBsMemoryMapped;
+	std::vector<ObjectSSBO>     objectSSBOs;
 	std::vector<VkBuffer>       billboardSSBs;
 	std::vector<VkDeviceMemory> billboardSSBsMemory;
 	std::vector<void*>          billboardSSBsMemoryMapped;
 
 	VkDescriptorPool             descriptorPool;
-	std::vector<VkDescriptorSet> descriptorSets;
+	std::vector<VkDescriptorSet> objectDescriptorSets;
 	std::vector<VkDescriptorSet> billboardYDescriptorSets;
 	std::vector<VkCommandBuffer> commandBuffers;
 
@@ -267,16 +269,20 @@ private:
 	std::vector<VkSemaphore> renderFinishedSemaphores;
 	std::vector<VkFence>     inFlightFences;
 
+
 	std::vector<Vertex>       vertices;
 	std::vector<uint32_t>     indices;
 	std::vector<Model>        models;
 	std::vector<Texture>      textures;
+
 	std::vector<Material>     materials;
 	std::vector<RenderObject> renderObjects;
-	std::vector<uint32_t>     freeIDs;
+	std::vector<uint32_t>     freeObjectIDs;
+
 	std::vector<Billboard>    billboards;
 	std::vector<uint32_t>     billboardsY;
 	std::vector<uint32_t>     freeBillboardIDs;
+
 
 	bool framebufferResized = false;
 	uint32_t currentFrame = 0;
@@ -304,10 +310,10 @@ private:
 	void createVertexBuffer();
 	void createIndexBuffer();
         void createFrameUBs();
-	void createObjectUBs();
+	void createObjectSSBs();
 	void createBillboardSSBs();
         void createDescriptorPool();
-        void createFrameDescriptorSets();
+        void createObjectDescriptorSets();
         void createBillboardDescriptorSets();
         void createCommandBuffers();
         void createSyncObjects();
@@ -555,26 +561,26 @@ void Vulf::createTextureDescriptor(Texture& texture){
 
 uint32_t Vulf::createObject(uint32_t modelID, Transphorm objectTrasnphorm){
 	RenderObject object{modelID, objectTrasnphorm};
-	ObjectUBO ubo = {objectTrasnphorm.modelMatrix()};
+	ObjectSSBO ubo = {objectTrasnphorm.modelMatrix()};
 
 	uint32_t ID;
-	if(freeIDs.size() == 0){
+	if(freeObjectIDs.size() == 0){
 		ID = renderObjects.size();
 		renderObjects.push_back(object);
-		objectUBOs.push_back(ubo);
+		objectSSBOs.push_back(ubo);
 	} else {
-		ID = freeIDs.back();
-		freeIDs.pop_back();
+		ID = freeObjectIDs.back();
+		freeObjectIDs.pop_back();
 		renderObjects[ID] = object;
-		objectUBOs[ID] = ubo;
+		objectSSBOs[ID] = ubo;
 	}
 
 	return ID;
 }
 
 void Vulf::setObjectTrasphorm(uint32_t objectID, Transphorm objectTransphorm){ renderObjects[objectID].transphorm = objectTransphorm;
-	ObjectUBO ubo{renderObjects[objectID].transphorm.modelMatrix()};
-	objectUBOs[objectID] = ubo;
+	ObjectSSBO ubo{renderObjects[objectID].transphorm.modelMatrix()};
+	objectSSBOs[objectID] = ubo;
 }
 
 void Vulf::editObgjectTransphorm(uint32_t objectID, Transphorm objectTransphorm){
@@ -582,12 +588,12 @@ void Vulf::editObgjectTransphorm(uint32_t objectID, Transphorm objectTransphorm)
 	renderObjects[objectID].transphorm.rotation += objectTransphorm.rotation;
 	renderObjects[objectID].transphorm.scale += objectTransphorm.scale;
 
-	ObjectUBO ubo{renderObjects[objectID].transphorm.modelMatrix()};
-	objectUBOs[objectID] = ubo;
+	ObjectSSBO ubo{renderObjects[objectID].transphorm.modelMatrix()};
+	objectSSBOs[objectID] = ubo;
 }
 
 void Vulf::deleteObject(uint32_t objectID){
-	freeIDs.push_back(objectID);
+	freeObjectIDs.push_back(objectID);
 }
 
 uint32_t Vulf::createBillboardY(std::string materialName,  glm::vec2 scale, glm::vec3 position){
@@ -609,11 +615,11 @@ uint32_t Vulf::createBillboardY(std::string materialName,  glm::vec2 scale, glm:
 	return ID;
 }
 
-void Vulf::moveBillboard(uint32_t billboardID, glm::vec3 movement){
+void Vulf::moveBillboardY(uint32_t billboardID, glm::vec3 movement){
 	billboards[billboardID].position += glm::vec4{movement, 0};
 }
 
-void Vulf::deleteBillboard(uint32_t ID){
+void Vulf::deleteBillboardY(uint32_t ID){
 	for(uint32_t i = 0; i < billboardsY.size(); i++){
 		if(billboardsY[i] == ID){
 			billboardsY[i] = billboardsY.back();
@@ -626,7 +632,7 @@ void Vulf::deleteBillboard(uint32_t ID){
 }
 
 void Vulf::updateStorageBuffers(uint32_t currentFrame){
-	memcpy(objectUBsMemoryMapped[currentFrame], objectUBOs.data(), sizeof(ObjectUBO)*objectUBOs.size());
+	memcpy(objectSSBsMemoryMapped[currentFrame], objectSSBOs.data(), sizeof(ObjectSSBO)*objectSSBOs.size());
 	memcpy(billboardSSBsMemoryMapped[currentFrame], billboards.data(), sizeof(Billboard) * billboards.size());
 }
 
@@ -676,11 +682,11 @@ void Vulf::init(){
 	createVertexBuffer();
 	createIndexBuffer();
 	createFrameUBs();
-	createObjectUBs();
+	createObjectSSBs();
 	createBillboardSSBs();
 
 	createDescriptorPool();
-	createFrameDescriptorSets();
+	createObjectDescriptorSets();
 	createBillboardDescriptorSets();
 	createCommandBuffers();
 	createSyncObjects();
@@ -1232,7 +1238,7 @@ void Vulf::createFrameDescriptorSetLayout(){
 	layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
 	layoutInfo.pBindings = bindings.data();
 
-	if(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &frameDescriptorSetLayout) != VK_SUCCESS){
+	if(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &objectDescriptorSetLayout) != VK_SUCCESS){
 		throw std::runtime_error("Failed to create descriptor set layout\n");
 	}
 }
@@ -1395,7 +1401,7 @@ void Vulf::createGraphicsPipelines(){
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	std::array<VkDescriptorSetLayout, 2> descriptorSetLayouts = {
-		frameDescriptorSetLayout,
+		objectDescriptorSetLayout,
 		textureDescriptorSetLayout
 	};
 
@@ -1410,7 +1416,7 @@ void Vulf::createGraphicsPipelines(){
 	pipelineLayoutInfo.pushConstantRangeCount = static_cast<uint32_t>(pushConstantRanges.size());
 	pipelineLayoutInfo.pPushConstantRanges = pushConstantRanges.data();
 
-	if(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &graphicsPipelineLayout) != VK_SUCCESS){
+	if(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &objectPipelineLayout) != VK_SUCCESS){
 		throw std::runtime_error("Failed to create pipeline layout\n");
 	}
 
@@ -1426,13 +1432,13 @@ void Vulf::createGraphicsPipelines(){
 	pipelineInfo.pDepthStencilState = &depthStencil;
 	pipelineInfo.pColorBlendState = &colorBlending;
 	pipelineInfo.pDynamicState = &dynamicState;
-	pipelineInfo.layout = graphicsPipelineLayout;
+	pipelineInfo.layout = objectPipelineLayout;
 	pipelineInfo.renderPass = renderPass;
 	pipelineInfo.subpass = 0;
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo.basePipelineIndex = -1;
 
-	if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
+	if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &objectPipeline) != VK_SUCCESS) {
 		throw std::runtime_error("failed to create graphics pipeline\n");
 	}
 
@@ -1493,7 +1499,7 @@ void Vulf::createGraphicsPipelines(){
 	pipelineInfo2.pDepthStencilState = &depthStencil;
 	pipelineInfo2.pColorBlendState = &colorBlending;
 	pipelineInfo2.pDynamicState = &dynamicState;
-	pipelineInfo2.layout = graphicsPipelineLayout;
+	pipelineInfo2.layout = objectPipelineLayout;
 	pipelineInfo2.renderPass = renderPass;
 	pipelineInfo2.subpass = 0;
 	pipelineInfo2.basePipelineHandle = VK_NULL_HANDLE;
@@ -1844,19 +1850,19 @@ void Vulf::createFrameUBs(){
 	}
 }
 
-void Vulf::createObjectUBs(){
-	VkDeviceSize bufferSize = MAX_OBJECTS * sizeof(ObjectUBO);
+void Vulf::createObjectSSBs(){
+	VkDeviceSize bufferSize = MAX_OBJECTS * sizeof(ObjectSSBO);
 
-	objectUBs.resize(MAX_FRAMES_IN_FLIGHT);
-	objectUBsMemory.resize(MAX_FRAMES_IN_FLIGHT);
-	objectUBsMemoryMapped.resize(MAX_FRAMES_IN_FLIGHT);
+	objectSSBs.resize(MAX_FRAMES_IN_FLIGHT);
+	objectSSBsMemory.resize(MAX_FRAMES_IN_FLIGHT);
+	objectSSBsMemoryMapped.resize(MAX_FRAMES_IN_FLIGHT);
 
 	for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){
 		createBuffer(bufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, //<- maybe should use uniform bit
 			     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
-			     objectUBs[i], objectUBsMemory[i]);
+			     objectSSBs[i], objectSSBsMemory[i]);
 
-		vkMapMemory(device, objectUBsMemory[i], 0, bufferSize, 0, &objectUBsMemoryMapped[i]);
+		vkMapMemory(device, objectSSBsMemory[i], 0, bufferSize, 0, &objectSSBsMemoryMapped[i]);
 	}
 }
 
@@ -1899,16 +1905,16 @@ void Vulf::createDescriptorPool(){
 	}
 }
 
-void Vulf::createFrameDescriptorSets(){
-	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, frameDescriptorSetLayout);
+void Vulf::createObjectDescriptorSets(){
+	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, objectDescriptorSetLayout);
 	VkDescriptorSetAllocateInfo allocInfo{};
 	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 	allocInfo.descriptorPool = descriptorPool;
 	allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
 	allocInfo.pSetLayouts = layouts.data();
 
-	descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-	if(vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()) != VK_SUCCESS){
+	objectDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+	if(vkAllocateDescriptorSets(device, &allocInfo, objectDescriptorSets.data()) != VK_SUCCESS){
 		throw std::runtime_error("Failed to allocate descriptor sets\n");
 	}
 
@@ -1918,14 +1924,14 @@ void Vulf::createFrameDescriptorSets(){
 		frameUBInfo.offset = 0;
 		frameUBInfo.range = sizeof(FrameUBO);
 
-		VkDescriptorBufferInfo objectUBInfo{};
-		objectUBInfo.buffer = objectUBs[i];
-		objectUBInfo.offset = 0;
-		objectUBInfo.range = MAX_OBJECTS * sizeof(ObjectUBO);
+		VkDescriptorBufferInfo objectSSBInfo{};
+		objectSSBInfo.buffer = objectSSBs[i];
+		objectSSBInfo.offset = 0;
+		objectSSBInfo.range = MAX_OBJECTS * sizeof(ObjectSSBO);
 
 		std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
 		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[0].dstSet = descriptorSets[i];
+		descriptorWrites[0].dstSet = objectDescriptorSets[i];
 		descriptorWrites[0].dstBinding = 0;
 		descriptorWrites[0].dstArrayElement = 0;
 		descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -1935,12 +1941,12 @@ void Vulf::createFrameDescriptorSets(){
 		descriptorWrites[0].pTexelBufferView = nullptr;
 
 		descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[1].dstSet = descriptorSets[i];
+		descriptorWrites[1].dstSet = objectDescriptorSets[i];
 		descriptorWrites[1].dstBinding = 1;
 		descriptorWrites[1].dstArrayElement = 0;
 		descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		descriptorWrites[1].descriptorCount = 1;
-		descriptorWrites[1].pBufferInfo = &objectUBInfo;
+		descriptorWrites[1].pBufferInfo = &objectSSBInfo;
 		descriptorWrites[1].pImageInfo = nullptr;
 		descriptorWrites[1].pTexelBufferView = nullptr;
 		vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()),
@@ -1949,7 +1955,7 @@ void Vulf::createFrameDescriptorSets(){
 }
 
 void Vulf::createBillboardDescriptorSets(){
-	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, frameDescriptorSetLayout);
+	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, objectDescriptorSetLayout);
 	VkDescriptorSetAllocateInfo allocInfo{};
 	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 	allocInfo.descriptorPool = descriptorPool;
@@ -2137,7 +2143,7 @@ void Vulf::drawFrame(){
         renderPassInfo.pClearValues = clearValues.data();
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, objectPipeline);
 
         VkViewport viewport{};
         viewport.x = 0.0f;
@@ -2156,8 +2162,8 @@ void Vulf::drawFrame(){
 	updateFrameUBO(currentFrame);
 	updateStorageBuffers(currentFrame);
 
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 0, 1, 
-				&descriptorSets[currentFrame], 0, nullptr);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, objectPipelineLayout, 0, 1, 
+				&objectDescriptorSets[currentFrame], 0, nullptr);
 
         VkBuffer vertexBuffers[] = {vertexBuffer};
         VkDeviceSize offsets[] = {0};
@@ -2168,7 +2174,7 @@ void Vulf::drawFrame(){
 	for(uint32_t i = 0; i < renderObjects.size(); i++){
 
 		bool skip = false;
-		for(uint32_t ID : freeIDs){
+		for(uint32_t ID : freeObjectIDs){
 			if(i == ID){
 				skip = true;
 			}
@@ -2179,9 +2185,9 @@ void Vulf::drawFrame(){
 		PushConstans pc {i};
 
 		for(const SubMesh& subMesh : models[renderObjects[i].modelID].subMeshes){
-			vkCmdPushConstants(commandBuffer, graphicsPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+			vkCmdPushConstants(commandBuffer, objectPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
 					   sizeof(PushConstans), &pc);
-			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipelineLayout, 
+			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, objectPipelineLayout, 
 						1, 1, &textures[materials[subMesh.materialID].textureID].descriptorSet, 0, nullptr);
 
 			Mesh mesh = subMesh.mesh;
@@ -2196,7 +2202,7 @@ void Vulf::drawFrame(){
 	for(auto ID : billboardsY){
 
 		bool skip = false;
-		for(uint32_t i : freeIDs){
+		for(uint32_t i : freeObjectIDs){
 			if(ID == i){
 				skip = true;
 			}
@@ -2228,7 +2234,7 @@ void Vulf::cleanup(){
 	cleanupSwapchain();
 
 	vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-	vkDestroyDescriptorSetLayout(device, frameDescriptorSetLayout, nullptr);
+	vkDestroyDescriptorSetLayout(device, objectDescriptorSetLayout, nullptr);
 	vkDestroyDescriptorSetLayout(device, textureDescriptorSetLayout, nullptr);
 	vkDestroyDescriptorSetLayout(device, billboardDescriptorSetLayout, nullptr);
 	vkDestroySampler(device, textureSampler, nullptr);
@@ -2246,8 +2252,8 @@ void Vulf::cleanup(){
 		vkDestroyBuffer(device, frameUBs[i], nullptr);
 		vkFreeMemory(device, frameUBsMemory[i], nullptr);
 
-		vkDestroyBuffer(device, objectUBs[i], nullptr);
-		vkFreeMemory(device, objectUBsMemory[i], nullptr);
+		vkDestroyBuffer(device, objectSSBs[i], nullptr);
+		vkFreeMemory(device, objectSSBsMemory[i], nullptr);
 
 		vkDestroyBuffer(device, billboardSSBs[i], nullptr);
 		vkFreeMemory(device, billboardSSBsMemory[i], nullptr);
@@ -2264,8 +2270,8 @@ void Vulf::cleanup(){
 	vkDestroyBuffer(device, indexBuffer, nullptr);
 	vkFreeMemory(device, indexBufferMemory, nullptr);
 
-	vkDestroyPipeline(device, graphicsPipeline, nullptr);
-	vkDestroyPipelineLayout(device, graphicsPipelineLayout, nullptr);
+	vkDestroyPipeline(device, objectPipeline, nullptr);
+	vkDestroyPipelineLayout(device, objectPipelineLayout, nullptr);
 	vkDestroyPipeline(device, billboardYPipeline, nullptr);
 	vkDestroyPipelineLayout(device, billboardYPipelineLayout, nullptr);
 	vkDestroyRenderPass(device, renderPass, nullptr);

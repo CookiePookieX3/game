@@ -15,7 +15,7 @@ int main(){
 	vulf.FOV = 60;
 
 	
-	uint32_t b = vulf.createBillboardY("Material.002", {1.0, 1.0}, {-1.0, 1.0, -1.0});
+	uint32_t b = vulf.createBillboardY("Material.003", {3.0, 4.0}, {-1.0, 0.0, -1.0});
 	uint32_t a = vulf.createObject(labModelID, Transphorm{{0, 0, 0}, {0, 0, 0, 0}, {1, 1, 1}});
 
 	uint32_t labID = parseShapeFromAFile("collisions/walls1.txt", {0.0f, -4.0f}, pi/4, {1, 1});

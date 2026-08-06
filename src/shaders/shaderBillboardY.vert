@@ -39,10 +39,11 @@ void main(){
 		vec2(1.0, 0.0)
 	);
 
-	vec3 right = normalize(vec3(camera.view[0][0], 0.0, camera.view[2][0]));
+	vec3 right = normalize(vec3(camera.view[0][0], camera.view[1][0], camera.view[2][0]));
+	vec3 up = vec3(0.0, 1.0, 0.0);
 
-	vec3 worldPosition = billboard.position.xyz + right * corners[gl_VertexIndex].x * billboard.dimensions.x +
-			     vec3(0.0, 1.0, 0.0) * corners[gl_VertexIndex].y * billboard.dimensions.y;
+	vec3 worldPosition = billboard.position.xyz + right * corners[gl_VertexIndex].x * billboard.dimensions.x
+			                            + up    * corners[gl_VertexIndex].y * billboard.dimensions.y;
 
 	gl_Position = camera.proj * camera.view * vec4(worldPosition, 1.0);
 	fragTexCoord =  texCoords[gl_VertexIndex];
