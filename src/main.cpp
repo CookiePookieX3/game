@@ -10,6 +10,7 @@ Vulf vulf;
 int main(){
 	uint32_t labModelID = vulf.loadModel("models/maptest.obj");
 
+	vulf.setConfig("engineConfig.toml");
 	vulf.init();
 
 	vulf.FOV = 60;
@@ -37,6 +38,8 @@ int main(){
 		previousTime = time;
 		time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 		float deltaT = time - previousTime;
+		
+		//std::cout << 1 / deltaT << '\n';
 
 		processPlayerMovement(deltaT, vulf);
 

@@ -12,6 +12,8 @@
 //#define TINYOBJLOADER_IMPLEMENTATION
 #include <extern/tiny_obj_loader.h>
 
+#include <toml++/toml.hpp>
+
 #define FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_RADIANS
 #include <extern/glm/glm/ext/matrix_transform.hpp>
@@ -32,14 +34,19 @@
 #include <iostream>
 
 
-static const int MAX_FRAMES_IN_FLIGHT = 2;
-static const size_t MAX_OBJECTS = 1000;
-static const size_t MAX_BILLBOARDS = 1000;
-
-
 static VkVertexInputBindingDescription getBindingDescription();
 static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions();
 
+
+struct RenderConfig{
+	bool created = false;
+
+	VkSampleCountFlagBits msaaSamples;
+
+	uint32_t MAX_FRAMES_IN_FLIGHT;
+	uint32_t MAX_OBJECTS;
+	uint32_t MAX_BILLBOARDS;
+};
 
 struct QueueFamilyIndicies {
 	std::optional<uint32_t> graphicsFamily;
@@ -190,14 +197,16 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityF
 
 class Vulf{
 public:
-	glm::vec3 cameraPosition;
-	glm::vec3 cameraDirection;
-	float     FOV;
-	GLFWwindow*      window;
+	glm::vec3   cameraPosition;
+	glm::vec3   cameraDirection;
+	float       FOV;
+	GLFWwindow* window;
 
 
 	uint32_t loadModel(std::string fileName);
 	uint32_t createMaterial(const tinyobj::material_t& objMat);
+
+	void setConfig(std::string filePath);
 	void init();
 	bool shouldRun();
 	void drawFrame();
@@ -215,6 +224,8 @@ public:
 	void deleteBillboardY(uint32_t ID);
 
 private:
+	RenderConfig renderConfig;
+
 	VkInstance       instance;
 	VkSurfaceKHR     surface;
 	VkQueue          graphicsQueue;
@@ -268,6 +279,9 @@ private:
 	std::vector<VkSemaphore> renderFinishedSemaphores;
 	std::vector<VkFence>     inFlightFences;
 
+	VkImage        colorImage;
+	VkDeviceMemory colorImageMemory;
+	VkImageView    colorImageView;
 
 	std::vector<Vertex>       vertices;
 	std::vector<uint32_t>     indices;
@@ -286,7 +300,6 @@ private:
 	bool framebufferResized = false;
 	uint32_t currentFrame = 0;
 
-
 	void loadTexture(Texture& texture);
 	uint32_t findMaterialByName(std::string name);
 
@@ -303,6 +316,7 @@ private:
 	void createTextureDescriptorSetLayout();
 	void createGraphicsPipelines();
 	void createCommandPool();
+	void createColorResources();
 	void createDepthResources();
 	void createFramebuffers();
 	void createTextureSampler();
@@ -318,8 +332,9 @@ private:
         void createSyncObjects();
 	void loadTextures();
 
-	bool isDeviceSuitable(VkPhysicalDevice device);
+	float evaluateDevice(VkPhysicalDevice device);
 	std::vector<const char*> getRequiredExtensions();
+	VkSampleCountFlagBits getMaxUsableSampleCount(VkPhysicalDevice device);
 	bool checkDeviceExtansionSupport(VkPhysicalDevice device);
 	QueueFamilyIndicies findQueueFamilies(VkPhysicalDevice device);
 	static void frameBufferResizeCallback(GLFWwindow* window, int width, int height);
@@ -330,9 +345,9 @@ private:
 	VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
 
 	void recreateSwapchain();
-	void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-		 	 VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image,
-		 	 VkDeviceMemory& imageMemory);
+	void createImage(uint32_t width, uint32_t height, VkSampleCountFlagBits numSamples, VkFormat format,
+		  VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
+		  VkImage& image, VkDeviceMemory& imageMemory);
 	void createImageView(VkImage image, VkImageView& imageView, VkFormat format, VkImageAspectFlagBits aspectFlags);
 	void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
 
@@ -509,9 +524,9 @@ void Vulf::loadTexture(Texture& texture){
 
 	stbi_image_free(pixels);
 
-	createImage(texWidth, texHeight, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
-		    VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-		    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.memory);
+	createImage(texWidth, texHeight, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB,
+		VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, texture.image, texture.memory);
 
 	transitionImageLayout(texture.image, VK_FORMAT_R8G8B8A8_SRGB,
 			      VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -577,7 +592,8 @@ uint32_t Vulf::createObject(uint32_t modelID, Transphorm objectTrasnphorm){
 	return ID;
 }
 
-void Vulf::setObjectTrasphorm(uint32_t objectID, Transphorm objectTransphorm){ renderObjects[objectID].transphorm = objectTransphorm;
+void Vulf::setObjectTrasphorm(uint32_t objectID, Transphorm objectTransphorm){
+	renderObjects[objectID].transphorm = objectTransphorm;
 	ObjectSSBO ubo{renderObjects[objectID].transphorm.modelMatrix()};
 	objectSSBOs[objectID] = ubo;
 }
@@ -655,6 +671,47 @@ void Vulf::updateFrameUBO(uint32_t currentImage){
         memcpy(frameUBsMemoryMapped[currentImage], &ubo, sizeof(ubo));
 }
 
+void Vulf::setConfig(std::string filePath){
+	if(renderConfig.created){
+		//TODO somew cleanup code b4 remakeing ts?
+	}
+
+	RenderConfig newConfig;
+	newConfig.created = true;
+
+	auto tbl = toml::parse_file(filePath);
+	auto render = tbl["render"];
+
+	int sampleCount = render["msaaSamples"].value_or(1);
+	switch(sampleCount){
+		case 2:
+		newConfig.msaaSamples = VK_SAMPLE_COUNT_2_BIT;
+		break;
+		case 4:
+		newConfig.msaaSamples = VK_SAMPLE_COUNT_4_BIT;
+		break;
+		case 8:
+		newConfig.msaaSamples = VK_SAMPLE_COUNT_8_BIT;
+		break;
+		case 16:
+		newConfig.msaaSamples = VK_SAMPLE_COUNT_16_BIT;
+		break;
+		case 32:
+		newConfig.msaaSamples = VK_SAMPLE_COUNT_32_BIT;
+		break;
+		case 64:
+		newConfig.msaaSamples = VK_SAMPLE_COUNT_64_BIT;
+		break;
+		default:
+		newConfig.msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+	}
+	newConfig.MAX_FRAMES_IN_FLIGHT = render["maxFramesInFlight"].value_or(2);
+	newConfig.MAX_OBJECTS = render["maxObjects"].value_or(100);
+	newConfig.MAX_BILLBOARDS = render["maxBillboards"].value_or(100);
+
+	renderConfig = newConfig;
+}
+
 void Vulf::init(){
 	initWindow();
 	createInstance();
@@ -675,6 +732,7 @@ void Vulf::init(){
 	createGraphicsPipelines();
 	createCommandPool();
 
+	createColorResources();
 	createDepthResources();
 	createFramebuffers();
 	createTextureSampler();
@@ -780,10 +838,11 @@ void Vulf::pickPhysicalDevice(){
 	std::vector<VkPhysicalDevice> devices(deviceCount);
 	vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
+	float bestScore = 0;
 	for(const auto& device : devices){
-		if(isDeviceSuitable(device)){
+		if(evaluateDevice(device) > bestScore){
 			physicalDevice = device;
-			break;
+			bestScore = evaluateDevice(device);
 		}
 	}
 
@@ -792,7 +851,7 @@ void Vulf::pickPhysicalDevice(){
 	}
 }
 
-bool Vulf::isDeviceSuitable(VkPhysicalDevice device){
+float Vulf::evaluateDevice(VkPhysicalDevice device){
 	QueueFamilyIndicies indices = findQueueFamilies(device);
 
 	bool extensionsSupported = checkDeviceExtansionSupport(device);
@@ -806,10 +865,49 @@ bool Vulf::isDeviceSuitable(VkPhysicalDevice device){
 	VkPhysicalDeviceFeatures supportedFeatures;
 	vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
 
-	return indices.isComplete() && 
-		extensionsSupported && 
-		swapchainAdequate /*&&
-		supportedFeatures.samplerAnisotropy*/;
+	uint32_t requested = renderConfig.msaaSamples;
+	VkSampleCountFlagBits supported = getMaxUsableSampleCount(device);
+	bool msaaAdequate = static_cast<uint32_t>(supported) >= requested;
+
+	if(!(indices.isComplete() && 
+	     extensionsSupported && 
+	     swapchainAdequate &&
+	     msaaAdequate /*&&
+	     supportedFeatures.samplerAnisotropy*/)){
+		return 0;
+	}
+
+	float score = 1;
+
+	VkPhysicalDeviceProperties properties;
+	vkGetPhysicalDeviceProperties(device, &properties);
+
+	if (properties.deviceType ==
+		VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU){
+		score += 1000;
+	}
+
+	score += getMaxUsableSampleCount(device);
+
+	return score;
+}
+
+VkSampleCountFlagBits Vulf::getMaxUsableSampleCount(VkPhysicalDevice device){
+	VkPhysicalDeviceProperties properties;
+	vkGetPhysicalDeviceProperties(device, &properties);
+
+	VkSampleCountFlags counts =
+		properties.limits.framebufferColorSampleCounts &
+		properties.limits.framebufferDepthSampleCounts;
+
+	if (counts & VK_SAMPLE_COUNT_64_BIT) return VK_SAMPLE_COUNT_64_BIT;
+	if (counts & VK_SAMPLE_COUNT_32_BIT) return VK_SAMPLE_COUNT_32_BIT;
+	if (counts & VK_SAMPLE_COUNT_16_BIT) return VK_SAMPLE_COUNT_16_BIT;
+	if (counts & VK_SAMPLE_COUNT_8_BIT)  return VK_SAMPLE_COUNT_8_BIT;
+	if (counts & VK_SAMPLE_COUNT_4_BIT)  return VK_SAMPLE_COUNT_4_BIT;
+	if (counts & VK_SAMPLE_COUNT_2_BIT)  return VK_SAMPLE_COUNT_2_BIT;
+
+	return VK_SAMPLE_COUNT_1_BIT;
 }
 
 bool Vulf::checkDeviceExtansionSupport(VkPhysicalDevice device){
@@ -1047,6 +1145,7 @@ void Vulf::recreateSwapchain(){
 
 	createSwapchain();
 	createImageViews();
+	createColorResources();
 	createDepthResources();
 	createFramebuffers();
 }
@@ -1060,9 +1159,9 @@ void Vulf::createImageViews(){
 	}
 }
 
-void Vulf::createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-		 VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image,
-		 VkDeviceMemory& imageMemory){
+void Vulf::createImage(uint32_t width, uint32_t height, VkSampleCountFlagBits numSamples, VkFormat format,
+		       VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
+		       VkImage& image, VkDeviceMemory& imageMemory){
 	VkImageCreateInfo imageCreateInfo {};
 	imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 	imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -1076,7 +1175,7 @@ void Vulf::createImage(uint32_t width, uint32_t height, VkFormat format, VkImage
 	imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	imageCreateInfo.usage = usage;
 	imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageCreateInfo.samples = numSamples;
 	imageCreateInfo.flags = 0;
 
 	if(vkCreateImage(device, &imageCreateInfo, nullptr, &image) != VK_SUCCESS){
@@ -1133,17 +1232,33 @@ void Vulf::createImageView(VkImage image, VkImageView& imageView,
 void Vulf::createRenderPass(){
 	VkAttachmentDescription colorAttachment{};
 	colorAttachment.format = swapchainImageFormat;
-	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	colorAttachment.samples = renderConfig.msaaSamples;
 	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	if(renderConfig.msaaSamples != VK_SAMPLE_COUNT_1_BIT){
+		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	} else {
+		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	}
+
+	VkAttachmentDescription colorAttachmentResolve{};
+	if(renderConfig.msaaSamples != VK_SAMPLE_COUNT_1_BIT){
+		colorAttachmentResolve.format = swapchainImageFormat;
+		colorAttachmentResolve.samples = VK_SAMPLE_COUNT_1_BIT;
+		colorAttachmentResolve.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		colorAttachmentResolve.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		colorAttachmentResolve.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		colorAttachmentResolve.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		colorAttachmentResolve.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		colorAttachmentResolve.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	}
 
 	VkAttachmentDescription depthAttachment{};
 	depthAttachment.format = findDepthFormat();
-	depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	depthAttachment.samples = renderConfig.msaaSamples;
 	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -1159,18 +1274,32 @@ void Vulf::createRenderPass(){
 	depthAttachmentRef.attachment = 1;
 	depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
+	VkAttachmentReference colorAttachmentResolveRef{};
+	if(renderConfig.msaaSamples != VK_SAMPLE_COUNT_1_BIT){
+		colorAttachmentResolveRef.attachment = 2;
+		colorAttachmentResolveRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	}
+
 	VkSubpassDescription subpass{};
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorAttachmentRef;
 	subpass.pDepthStencilAttachment = &depthAttachmentRef;
+	if(renderConfig.msaaSamples != VK_SAMPLE_COUNT_1_BIT){
+		subpass.pResolveAttachments = &colorAttachmentResolveRef;
+	}
 
-	std::array<VkAttachmentDescription, 2> attachments = {colorAttachment,
-							      depthAttachment};
+	std::array<VkAttachmentDescription, 3> attachments = {colorAttachment,
+							      depthAttachment,
+						              colorAttachmentResolve};
 
 	VkRenderPassCreateInfo renderPassInfo{};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+	if(renderConfig.msaaSamples != VK_SAMPLE_COUNT_1_BIT){
+		renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+	} else {
+		renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size()) - 1;
+	}
 	renderPassInfo.pAttachments = attachments.data();
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;
@@ -1181,7 +1310,8 @@ void Vulf::createRenderPass(){
 	dependecy.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
 				 VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
 
-	dependecy.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	dependecy.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+				  VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 	dependecy.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
 				 VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
 
@@ -1370,7 +1500,7 @@ void Vulf::createGraphicsPipelines(){
 	VkPipelineMultisampleStateCreateInfo multisampling{};
 	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
 	multisampling.sampleShadingEnable = VK_FALSE;
-	multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisampling.rasterizationSamples = renderConfig.msaaSamples;
 	multisampling.minSampleShading = 1.0f;
 	multisampling.pSampleMask = nullptr;
 	multisampling.alphaToCoverageEnable = VK_FALSE;
@@ -1504,6 +1634,7 @@ void Vulf::createGraphicsPipelines(){
 	pipelineInfo2.subpass = 0;
 	pipelineInfo2.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo2.basePipelineIndex = -1;
+	pipelineInfo2.flags = 0;
 
 	if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo2, nullptr, &billboardYPipeline) != VK_SUCCESS) {
 		throw std::runtime_error("failed to create graphics pipeline\n");
@@ -1557,10 +1688,21 @@ void Vulf::createCommandPool(){
 	}
 }
 
+void Vulf::createColorResources(){
+	VkFormat colorFormat = swapchainImageFormat;
+
+	createImage(swapchainExtent.width, swapchainExtent.height, renderConfig.msaaSamples,
+	     colorFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT |
+	     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 
+	     colorImage, colorImageMemory);
+
+	createImageView(colorImage, colorImageView, colorFormat, VK_IMAGE_ASPECT_COLOR_BIT);
+}
+
 void Vulf::createDepthResources(){
 	VkFormat depthFormat = findDepthFormat();
 
-	createImage(swapchainExtent.width, swapchainExtent.height, depthFormat,
+	createImage(swapchainExtent.width, swapchainExtent.height, renderConfig.msaaSamples, depthFormat,
 		    VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
 		    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, depthImage, depthImageMemory);
 
@@ -1677,23 +1819,37 @@ void Vulf::createFramebuffers(){
 	swapchainFramebuffers.resize(swapchainImageViews.size());
 
 	for(size_t i = 0; i < swapchainImageViews.size(); i++){
-		std::array<VkImageView, 2> attachments = {
-			swapchainImageViews[i],
-			depthImageView
-		};
-
 		VkFramebufferCreateInfo framebufferInfo{};
 		framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 		framebufferInfo.renderPass = renderPass;
-		framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-		framebufferInfo.pAttachments = attachments.data();
 		framebufferInfo.width = swapchainExtent.width;
 		framebufferInfo.height = swapchainExtent.height;
 		framebufferInfo.layers = 1;
 
-		if(vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapchainFramebuffers[i]) != VK_SUCCESS){
-			throw std::runtime_error("Failed to create framebuffer\n");
+		if(renderConfig.msaaSamples != VK_SAMPLE_COUNT_1_BIT){
+			std::array<VkImageView, 3> attachments = {
+				colorImageView,
+				depthImageView,
+				swapchainImageViews[i],
+			};
+
+			framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+			framebufferInfo.pAttachments = attachments.data();
+			if(vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapchainFramebuffers[i]) != VK_SUCCESS){
+				throw std::runtime_error("Failed to create framebuffer\n");
+			}
+		} else {
+			std::array<VkImageView, 2> attachments = {
+				swapchainImageViews[i],
+				depthImageView
+			};
+			framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+			framebufferInfo.pAttachments = attachments.data();
+			if(vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapchainFramebuffers[i]) != VK_SUCCESS){
+				throw std::runtime_error("Failed to create framebuffer\n");
+			}
 		}
+
 	}
 }
 
@@ -1837,11 +1993,11 @@ void Vulf::createIndexBuffer(){
 void Vulf::createFrameUBs(){
 	VkDeviceSize bufferSize = sizeof(FrameUBO);
 
-	frameUBs.resize(MAX_FRAMES_IN_FLIGHT);
-	frameUBsMemory.resize(MAX_FRAMES_IN_FLIGHT);
-	frameUBsMemoryMapped.resize(MAX_FRAMES_IN_FLIGHT);
+	frameUBs.resize(renderConfig.MAX_FRAMES_IN_FLIGHT);
+	frameUBsMemory.resize(renderConfig.MAX_FRAMES_IN_FLIGHT);
+	frameUBsMemoryMapped.resize(renderConfig.MAX_FRAMES_IN_FLIGHT);
 
-	for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){
+	for(size_t i = 0; i < renderConfig.MAX_FRAMES_IN_FLIGHT; i++){
 		createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 
 			     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
 			     frameUBs[i], frameUBsMemory[i]);
@@ -1851,13 +2007,13 @@ void Vulf::createFrameUBs(){
 }
 
 void Vulf::createObjectSSBs(){
-	VkDeviceSize bufferSize = MAX_OBJECTS * sizeof(ObjectSSBO);
+	VkDeviceSize bufferSize = renderConfig.MAX_OBJECTS * sizeof(ObjectSSBO);
 
-	objectSSBs.resize(MAX_FRAMES_IN_FLIGHT);
-	objectSSBsMemory.resize(MAX_FRAMES_IN_FLIGHT);
-	objectSSBsMemoryMapped.resize(MAX_FRAMES_IN_FLIGHT);
+	objectSSBs.resize(renderConfig.MAX_FRAMES_IN_FLIGHT);
+	objectSSBsMemory.resize(renderConfig.MAX_FRAMES_IN_FLIGHT);
+	objectSSBsMemoryMapped.resize(renderConfig.MAX_FRAMES_IN_FLIGHT);
 
-	for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){
+	for(size_t i = 0; i < renderConfig.MAX_FRAMES_IN_FLIGHT; i++){
 		createBuffer(bufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, //<- maybe should use uniform bit
 			     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
 			     objectSSBs[i], objectSSBsMemory[i]);
@@ -1867,13 +2023,13 @@ void Vulf::createObjectSSBs(){
 }
 
 void Vulf::createBillboardSSBs(){
-	VkDeviceSize bufferSize = MAX_BILLBOARDS * sizeof(Billboard);
+	VkDeviceSize bufferSize = renderConfig.MAX_BILLBOARDS * sizeof(Billboard);
 
-	billboardSSBs.resize(MAX_FRAMES_IN_FLIGHT);
-	billboardSSBsMemory.resize(MAX_FRAMES_IN_FLIGHT);
-	billboardSSBsMemoryMapped.resize(MAX_FRAMES_IN_FLIGHT);
+	billboardSSBs.resize(renderConfig.MAX_FRAMES_IN_FLIGHT);
+	billboardSSBsMemory.resize(renderConfig.MAX_FRAMES_IN_FLIGHT);
+	billboardSSBsMemoryMapped.resize(renderConfig.MAX_FRAMES_IN_FLIGHT);
 
-	for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){
+	for(size_t i = 0; i < renderConfig.MAX_FRAMES_IN_FLIGHT; i++){
 		createBuffer(bufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, //<- maybe should use uniform bit
 			     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
 			     billboardSSBs[i], billboardSSBsMemory[i]);
@@ -1885,10 +2041,10 @@ void Vulf::createBillboardSSBs(){
 void Vulf::createDescriptorPool(){
 	std::array<VkDescriptorPoolSize, 3> poolSizes{};
 	poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) * 2;
+	poolSizes[0].descriptorCount = static_cast<uint32_t>(renderConfig.MAX_FRAMES_IN_FLIGHT) * 2;
 
 	poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2);
+	poolSizes[1].descriptorCount = static_cast<uint32_t>(renderConfig.MAX_FRAMES_IN_FLIGHT * 2);
 
 	poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	poolSizes[2].descriptorCount = 10;
@@ -1897,7 +2053,7 @@ void Vulf::createDescriptorPool(){
 	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 	poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
 	poolInfo.pPoolSizes = poolSizes.data();
-	//poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+	//poolInfo.maxSets = static_cast<uint32_t>(renderConfig.MAX_FRAMES_IN_FLIGHT);
 	poolInfo.maxSets = 18;
 
 	if(vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS){
@@ -1906,19 +2062,19 @@ void Vulf::createDescriptorPool(){
 }
 
 void Vulf::createObjectDescriptorSets(){
-	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, objectDescriptorSetLayout);
+	std::vector<VkDescriptorSetLayout> layouts(renderConfig.MAX_FRAMES_IN_FLIGHT, objectDescriptorSetLayout);
 	VkDescriptorSetAllocateInfo allocInfo{};
 	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 	allocInfo.descriptorPool = descriptorPool;
-	allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+	allocInfo.descriptorSetCount = static_cast<uint32_t>(renderConfig.MAX_FRAMES_IN_FLIGHT);
 	allocInfo.pSetLayouts = layouts.data();
 
-	objectDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+	objectDescriptorSets.resize(renderConfig.MAX_FRAMES_IN_FLIGHT);
 	if(vkAllocateDescriptorSets(device, &allocInfo, objectDescriptorSets.data()) != VK_SUCCESS){
 		throw std::runtime_error("Failed to allocate descriptor sets\n");
 	}
 
-	for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){
+	for(size_t i = 0; i < renderConfig.MAX_FRAMES_IN_FLIGHT; i++){
 		VkDescriptorBufferInfo frameUBInfo{};
 		frameUBInfo.buffer = frameUBs[i];
 		frameUBInfo.offset = 0;
@@ -1927,7 +2083,7 @@ void Vulf::createObjectDescriptorSets(){
 		VkDescriptorBufferInfo objectSSBInfo{};
 		objectSSBInfo.buffer = objectSSBs[i];
 		objectSSBInfo.offset = 0;
-		objectSSBInfo.range = MAX_OBJECTS * sizeof(ObjectSSBO);
+		objectSSBInfo.range = renderConfig.MAX_OBJECTS * sizeof(ObjectSSBO);
 
 		std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
 		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1955,19 +2111,19 @@ void Vulf::createObjectDescriptorSets(){
 }
 
 void Vulf::createBillboardDescriptorSets(){
-	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, billboardDescriptorSetLayout);
+	std::vector<VkDescriptorSetLayout> layouts(renderConfig.MAX_FRAMES_IN_FLIGHT, billboardDescriptorSetLayout);
 	VkDescriptorSetAllocateInfo allocInfo{};
 	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 	allocInfo.descriptorPool = descriptorPool;
-	allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+	allocInfo.descriptorSetCount = static_cast<uint32_t>(renderConfig.MAX_FRAMES_IN_FLIGHT);
 	allocInfo.pSetLayouts = layouts.data();
 
-	billboardYDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+	billboardYDescriptorSets.resize(renderConfig.MAX_FRAMES_IN_FLIGHT);
 	if(vkAllocateDescriptorSets(device, &allocInfo, billboardYDescriptorSets.data()) != VK_SUCCESS){
 		throw std::runtime_error("Failed to allocate descriptor sets\n");
 	}
 
-	for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){
+	for(size_t i = 0; i < renderConfig.MAX_FRAMES_IN_FLIGHT; i++){
 		VkDescriptorBufferInfo frameUBInfo{};
 		frameUBInfo.buffer = frameUBs[i];
 		frameUBInfo.offset = 0;
@@ -1976,7 +2132,7 @@ void Vulf::createBillboardDescriptorSets(){
 		VkDescriptorBufferInfo billboardUBInfo{};
 		billboardUBInfo.buffer = billboardSSBs[i];
 		billboardUBInfo.offset = 0;
-		billboardUBInfo.range = MAX_BILLBOARDS * sizeof(Billboard);
+		billboardUBInfo.range = renderConfig.MAX_BILLBOARDS * sizeof(Billboard);
 
 		std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
 		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2004,6 +2160,10 @@ void Vulf::createBillboardDescriptorSets(){
 }
 
 void Vulf::cleanupSwapchain(){
+	vkDestroyImageView(device, colorImageView, nullptr);
+	vkDestroyImage(device, colorImage, nullptr);
+	vkFreeMemory(device, colorImageMemory, nullptr);
+
 	vkDestroyImageView(device, depthImageView, nullptr);
 	vkDestroyImage(device, depthImage, nullptr);
 	vkFreeMemory(device, depthImageMemory, nullptr);
@@ -2020,7 +2180,7 @@ void Vulf::cleanupSwapchain(){
 }
 
 void Vulf::createCommandBuffers(){
-	commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+	commandBuffers.resize(renderConfig.MAX_FRAMES_IN_FLIGHT);
 	VkCommandBufferAllocateInfo allocInfo{};
 	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 	allocInfo.commandPool = commandPool;
@@ -2033,9 +2193,9 @@ void Vulf::createCommandBuffers(){
 }
 
 void Vulf::createSyncObjects(){
-	imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+	imageAvailableSemaphores.resize(renderConfig.MAX_FRAMES_IN_FLIGHT);
 	renderFinishedSemaphores.resize(swapchainImages.size());
-	inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+	inFlightFences.resize(renderConfig.MAX_FRAMES_IN_FLIGHT);
 
 	VkSemaphoreCreateInfo semaphoreInfo{};
 	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -2044,7 +2204,7 @@ void Vulf::createSyncObjects(){
 	fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 	fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-	for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){
+	for(size_t i = 0; i < renderConfig.MAX_FRAMES_IN_FLIGHT; i++){
 		if(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
 		   vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS){
 			throw std::runtime_error("Failed to create sync obects\n");
@@ -2117,7 +2277,7 @@ void Vulf::drawFrame(){
 		throw std::runtime_error("Failed to present swapchain image\n");
 	}
 
-	currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+	currentFrame = (currentFrame + 1) % renderConfig.MAX_FRAMES_IN_FLIGHT;
 }
 
     void Vulf::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex){
@@ -2246,7 +2406,7 @@ void Vulf::cleanup(){
 		vkFreeMemory(device, texture.memory, nullptr);
 	}
 
-	for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){
+	for(size_t i = 0; i < renderConfig.MAX_FRAMES_IN_FLIGHT; i++){
 		vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
 		vkDestroyFence(device, inFlightFences[i], nullptr);
 

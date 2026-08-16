@@ -1,0 +1,5 @@
+[render]
+msaaSamples = 1
+maxFramesInFlight = 2
+maxObjects = 100
+maxBillboards = 100

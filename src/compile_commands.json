@@ -8,6 +8,7 @@
       "-DSTB_VULF_IMPLEMENTATION",
       "-O2",
       "-I/home/gayass/Projects/game/src",
+      "-I../src/extern/tomlplusplus/include",
       "-o",
       "game",
       "../src/main.cpp"
@@ -17,3 +18,4 @@
     "output": "/home/gayass/Projects/game/build/game"
   }
 ]
+	g++ -std=c++17 -O3 ../src/main.cpp -o ./game -I../src -lvulkan -lglfw -L../src/externCompiled -lextern -I../src/extern/tomlplusplus/include
